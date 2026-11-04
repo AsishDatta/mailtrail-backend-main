@@ -34,7 +34,10 @@ mongoose.connect(mongodbURI, { serverSelectionTimeoutMS: 8000 })
 
 function databaseUnavailable(res, error) {
     console.error(error);
-    res.status(500).json({ error: 'database_unavailable' });
+    const detail = String(error?.message || 'database_unavailable')
+        .split('\n')[0]
+        .replace(/mongodb(\+srv)?:\/\/\S+/gi, 'mongodb://***');
+    res.status(500).json({ error: 'database_unavailable', detail });
 }
 
 function formatKolkata(betweenDateAndTime) {
