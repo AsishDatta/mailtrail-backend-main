@@ -11,7 +11,12 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 dotenv.config();
 
+process.on('unhandledRejection', (error) => {
+    console.error(error);
+});
+
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 const port = process.env.PORT || 5000;
 const __dirname = path.resolve();
@@ -24,57 +29,46 @@ app.use(bodyParser.urlencoded({ extended: true }));
 //create connection to mongodb
 mongoose.connect(mongodbURI, { useNewUrlParser: true, useUnifiedTopology: true });
 
+function formatKolkata(betweenDateAndTime) {
+    const dateTime = new Date();
+    const date = dateTime.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' });
+    const time = dateTime.toLocaleTimeString('en-US', { hour12: true, timeZone: 'Asia/Kolkata' });
+    return `${date}${betweenDateAndTime}${time}`;
+}
+
 app.get('/', (req, res) => {
     res.send('APIs are up and running');
 });
 
 app.post('/api/newToken', async (req, res) => {
-    const token = v4();
-    // const date = new Date();
-    let dateTimeString;
-    await axios.get("http://worldtimeapi.org/api/timezone/Asia/Kolkata")
-        .then((res) => {
-            dateTimeString = res.data.datetime;
-        });
+    try {
+        const token = v4();
+        const formattedDateTime = formatKolkata(', ');
 
-    const dateTime = new Date(dateTimeString);
-
-    const date = dateTime.toLocaleDateString('en-GB');
-    const time = dateTime.toLocaleTimeString('en-US', { hour12: true, timeZone: 'Asia/Kolkata' });
-
-    const formattedDateTime = `${date}, ${time}`;
-
-    const newToken = new Token({ _id: token, emailTitle: req.body.emailTitle, createdAt: formattedDateTime });
-    await newToken.save();
-    console.log("New token created: " + token);
-    res.send(token);
+        const newToken = new Token({ _id: token, emailTitle: req.body.emailTitle, createdAt: formattedDateTime });
+        await newToken.save();
+        console.log("New token created: " + token);
+        res.send(token);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Failed to create token');
+    }
 });
 
 app.get('/api', async (req, res) => {
     const token = req.query.token;
     let ua = req.get('User-Agent');
     let parser = new UAParser(ua);
-    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const forwarded = req.headers['x-forwarded-for'];
+    const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.ip) || req.socket.remoteAddress;
     let location;
     await axios.get(`http://ip-api.com/json/${ip}`)
         .then(response => { location = `${response.data.city}, ${response.data.regionName}`; })
         .catch(error => {
             console.log(error);
         });
-    //log time of every new request to the api 
-    // const date = new Date();
-    let dateTimeString;
-    await axios.get("http://worldtimeapi.org/api/timezone/Asia/Kolkata")
-        .then((res) => {
-            dateTimeString = res.data.datetime;
-        });
-
-    const dateTime = new Date(dateTimeString);
-
-    const date = dateTime.toLocaleDateString('en-GB');
-    const time = dateTime.toLocaleTimeString('en-US', { hour12: true, timeZone: 'Asia/Kolkata' });
-
-    const formattedDateTime = `${date} at ${time}`;
+    //log time of every new request to the api
+    const formattedDateTime = formatKolkata(' at ');
 
     const details = {
         accessedAt: formattedDateTime,
@@ -128,5 +122,5 @@ app.get('/api/getDetails', async (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log('Server running on port 5000');
+    console.log(`Server running on port ${port}`);
 });
