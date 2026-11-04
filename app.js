@@ -26,8 +26,16 @@ const mongodbURI = process.env.MONGODB_URI;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-//create connection to mongodb
-mongoose.connect(mongodbURI, { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.set('bufferCommands', false);
+mongoose.connect(mongodbURI, { serverSelectionTimeoutMS: 8000 })
+    .catch((error) => {
+        console.error('MongoDB connection failed:', error.message);
+    });
+
+function databaseUnavailable(res, error) {
+    console.error(error);
+    res.status(500).json({ error: 'database_unavailable' });
+}
 
 function formatKolkata(betweenDateAndTime) {
     const dateTime = new Date();
@@ -36,11 +44,12 @@ function formatKolkata(betweenDateAndTime) {
     return `${date}${betweenDateAndTime}${time}`;
 }
 
-app.get('/', (req, res) => {
+app.get('/', (req, res, next) => {
+    if (req.query.token) return next();
     res.send('APIs are up and running');
 });
 
-app.post('/api/newToken', async (req, res) => {
+app.post(['/api/newToken', '/newToken'], async (req, res) => {
     try {
         const token = v4();
         const formattedDateTime = formatKolkata(', ');
@@ -55,7 +64,7 @@ app.post('/api/newToken', async (req, res) => {
     }
 });
 
-app.get('/api', async (req, res) => {
+app.get(['/api', '/'], async (req, res) => {
     const token = req.query.token;
     let ua = req.get('User-Agent');
     let parser = new UAParser(ua);
@@ -79,7 +88,12 @@ app.get('/api', async (req, res) => {
     };
 
     //check if the token exists in the database 
-    const tokenExists = await Token.exists({ _id: token });
+    let tokenExists;
+    try {
+        tokenExists = await Token.exists({ _id: token });
+    } catch (error) {
+        return databaseUnavailable(res, error);
+    }
     if (tokenExists) {
         const detailsExists = await RequestDetails.exists({ _id: token });
         if (detailsExists) {
@@ -107,18 +121,25 @@ app.get('/api', async (req, res) => {
     }
 });
 
-app.get('/api/getTokens', async (req, res) => {
+app.get(['/api/getTokens', '/getTokens'], async (req, res) => {
     console.log("Get tokens request received");
-    const tokens = await Token.find();
-    res.send(tokens);
+    try {
+        const tokens = await Token.find();
+        res.send(tokens);
+    } catch (error) {
+        databaseUnavailable(res, error);
+    }
 });
 
-app.get('/api/getDetails', async (req, res) => {
+app.get(['/api/getDetails', '/getDetails'], async (req, res) => {
     console.log("Get details request received");
     const token = req.query.token;
-    //fetch details from the database for the given token 
-    const tokenDetails = await RequestDetails.findById(token);
-    res.send(tokenDetails);
+    try {
+        const tokenDetails = await RequestDetails.findById(token);
+        res.send(tokenDetails);
+    } catch (error) {
+        databaseUnavailable(res, error);
+    }
 });
 
 app.listen(port, () => {
