@@ -26,11 +26,10 @@ const mongodbURI = process.env.MONGODB_URI;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-mongoose.set('bufferCommands', false);
-mongoose.connect(mongodbURI, { serverSelectionTimeoutMS: 8000 })
-    .catch((error) => {
-        console.error('MongoDB connection failed:', error.message);
-    });
+const dbReady = mongoose.connect(mongodbURI, { serverSelectionTimeoutMS: 20000 });
+dbReady.catch((error) => {
+    console.error('MongoDB connection failed:', error.message);
+});
 
 function databaseUnavailable(res, error) {
     console.error(error);
@@ -38,6 +37,16 @@ function databaseUnavailable(res, error) {
         .split('\n')[0]
         .replace(/mongodb(\+srv)?:\/\/\S+/gi, 'mongodb://***');
     res.status(500).json({ error: 'database_unavailable', detail });
+}
+
+async function ensureDb(res) {
+    try {
+        await dbReady;
+        return true;
+    } catch (error) {
+        databaseUnavailable(res, error);
+        return false;
+    }
 }
 
 function formatKolkata(betweenDateAndTime) {
@@ -54,6 +63,7 @@ app.get('/', (req, res, next) => {
 
 app.post(['/api/newToken', '/newToken'], async (req, res) => {
     try {
+        if (!(await ensureDb(res))) return;
         const token = v4();
         const formattedDateTime = formatKolkata(', ');
 
@@ -91,6 +101,7 @@ app.get(['/api', '/'], async (req, res) => {
     };
 
     //check if the token exists in the database 
+    if (!(await ensureDb(res))) return;
     let tokenExists;
     try {
         tokenExists = await Token.exists({ _id: token });
@@ -126,6 +137,7 @@ app.get(['/api', '/'], async (req, res) => {
 
 app.get(['/api/getTokens', '/getTokens'], async (req, res) => {
     console.log("Get tokens request received");
+    if (!(await ensureDb(res))) return;
     try {
         const tokens = await Token.find();
         res.send(tokens);
@@ -137,6 +149,7 @@ app.get(['/api/getTokens', '/getTokens'], async (req, res) => {
 app.get(['/api/getDetails', '/getDetails'], async (req, res) => {
     console.log("Get details request received");
     const token = req.query.token;
+    if (!(await ensureDb(res))) return;
     try {
         const tokenDetails = await RequestDetails.findById(token);
         res.send(tokenDetails);
